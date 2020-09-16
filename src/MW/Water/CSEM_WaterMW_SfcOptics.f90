@@ -50,6 +50,13 @@ MODULE CSEM_WaterMW_SfcOptics
                          Compute_RTTOV_Fastem_TL, &
                          Compute_RTTOV_Fastem_AD 
   
+  USE NESDIS_ANN_FASTEM, ONLY: ANN_iVar_Type =>iVar_type, &
+                         Compute_ANN_Fastem, &
+                         Compute_ANN_Fastem_TL, &
+                         Compute_ANN_Fastem_AD, &
+                         ANN_FASTEM_Init, & 
+                         ANN_FASTEM_Destroy, &
+                         ANN_MWwaterCoeff_INIT
  !Disable implicit typing
   IMPLICIT NONE
 
@@ -74,6 +81,7 @@ MODULE CSEM_WaterMW_SfcOptics
     PRIVATE
     TYPE(FASTEM_iVar_Type) :: FASTEM
     TYPE(RTTOV_iVar_Type)  :: RTTOV(MAX_n_Angles)
+    TYPE(ANN_iVar_Type)    :: ANN(MAX_n_Angles)
     REAL(fp) :: Transmittance_TL
     REAL(fp) :: Transmittance_AD
   END TYPE iVar_type
@@ -221,6 +229,43 @@ CONTAINS
                             !Supply_Foam_Fraction, & ! Optional input
                             !Foam_Fraction)          ! Optional input
  
+            SfcOptics%Emissivity(i, 1:4)     =  Emiss(:)      
+            SfcOptics%Reflectivity(i,1,i,1)  =  Refl(1)          
+            SfcOptics%Reflectivity(i,2,i,2)  =  Refl(2)          
+            SfcOptics%Reflectivity(i,3,i,3)  =  Refl(3)          
+            SfcOptics%Reflectivity(i,4,i,4)  =  Refl(4)          
+         END DO
+
+      ELSE IF(INDEX(TRIM(MODEL%NAME),'NESDIS_ANN_FASTEM') > 0) THEN
+         MWwaterCoeff_File = 'ANN_MWWater.nc'
+         IF(TRIM(MODEL%NAME) .EQ. "NESDIS_ANN_FASTEM_W3") MWwaterCoeff_File = 'ANN_MWWater_W31.nc'
+         IF(TRIM(MODEL%NAME) .EQ. "NESDIS_ANN_FASTEM_W4") MWwaterCoeff_File = 'ANN_MWWater_W32.nc'
+         IF(TRIM(MODEL%NAME) .EQ. "NESDIS_ANN_FASTEM_W5") MWwaterCoeff_File = 'ANN_MWWater_W33.nc'
+         IF(.NOT. ANN_MWwaterCoeff_INIT) THEN
+           IO_Status = ANN_FASTEM_Init( &
+                TRIM(ADJUSTL(DB_PATH))//TRIM(ADJUSTL(MWwaterCoeff_File)) )
+
+           IF ( IO_Status /= SUCCESS ) THEN
+             PRINT*, 'Error loading MWwaterCoeff data from '// &
+             TRIM(ADJUSTL(DB_PATH))//TRIM(ADJUSTL(MWwaterCoeff_File))
+             STOP
+           END IF
+         ENDIF
+         
+         !Rel_Azimuth = Surface%Wind_Direction - Exts%SensorObs%Azimuth_Angle
+
+         DO i = 1, nZ 
+             CALL Compute_ANN_Fastem( &
+                             SfcOptics%Frequency,         &  ! Input
+                             SfcOptics%Angle(i),          &  ! Input
+                             Rel_Azimuth,                 &  ! Input
+                             Surface%Water_Temperature,   &  ! Input
+                             Surface%Salinity,            &  ! Input
+                             Surface%Wind_speed,          &  ! Input
+                             iVar%ANN(i),                 &  ! Internal variable output
+                             Emiss,                       &  ! Output
+                             Refl,Options%Atmos%Transmittance )                          
+
             SfcOptics%Emissivity(i, 1:4)     =  Emiss(:)      
             SfcOptics%Reflectivity(i,1,i,1)  =  Refl(1)          
             SfcOptics%Reflectivity(i,2,i,2)  =  Refl(2)          
@@ -390,6 +435,24 @@ CONTAINS
 
           END DO
  
+    ELSE IF(INDEX(TRIM(MODEL%NAME),'NESDIS_ANN_FASTEM') > 0) THEN
+          SfcOptics_TL%Reflectivity = ZERO
+          DO i = 1, nZ
+             CALL Compute_ANN_Fastem_TL( &
+                  Surface_TL%Wind_Direction,       &  ! Input, may not be used
+                  Surface_TL%Water_Temperature,    &  ! Input
+                  Surface_TL%Salinity,             &  ! Input
+                  Surface_TL%Wind_Speed,           &  ! Input
+                  iVar%ANN(i),                     &  ! Internal variable output
+                  Emiss_TL,                        &  ! Output
+                  Refl_TL )                           ! Output
+
+           SfcOptics_TL%Emissivity(i,1:4)      =  Emiss_TL(1:4)      
+           SfcOptics_TL%Reflectivity(i,1,i,1)  =  Refl_TL(1)          
+           SfcOptics_TL%Reflectivity(i,2,i,2)  =  Refl_TL(2)          
+           SfcOptics_TL%Reflectivity(i,3,i,3)  =  Refl_TL(3)          
+           SfcOptics_TL%Reflectivity(i,4,i,4)  =  Refl_TL(4)          
+        END DO
   
     ELSE IF (INDEX(TRIM(MODEL%NAME),'NESDIS_FASTEM') > 0) THEN
          IF(TRIM(MODEL%NAME) .EQ. "NESDIS_FASTEM_V6") THEN
@@ -556,7 +619,31 @@ CONTAINS
                  Surface_AD%Wind_Direction    = Surface_AD%Wind_Direction  + Rel_Azimuth_ad
                  Surface_AD%Foam_Fraction     = Surface_AD%Foam_Fraction + Foam_Fraction_ad
           END DO
-             
+    ELSE IF (INDEX(TRIM(MODEL%NAME),'NESDIS_ANN_FASTEM') > 0) THEN
+          DO i = 1, nZ
+             Emiss_AD   = SfcOptics_AD%Emissivity(i,1:4) 
+             Refl_AD(1) = SfcOptics_AD%Reflectivity(i,1,i,1)
+             Refl_AD(2) = SfcOptics_AD%Reflectivity(i,2,i,2)
+             Refl_AD(3) = SfcOptics_AD%Reflectivity(i,3,i,3)
+             Refl_AD(4) = SfcOptics_AD%Reflectivity(i,4,i,4)
+   
+             temperature_ad   = ZERO; salinity_ad    = ZERO; wind_Speed_ad    = ZERO
+             Rel_Azimuth_ad = ZERO
+             CALL Compute_ANN_Fastem_AD( &
+                 Rel_Azimuth_ad,                  &  ! Input
+                 temperature_ad,                  &  ! Input
+                 salinity_ad,                     &  ! Input
+                 wind_Speed_ad,                   &  ! Input
+                 iVar%ANN(i),                     &  ! Internal variable output
+                 Emiss_AD,                        &  ! Output
+                 Refl_AD )                           ! Output
+ 
+                 Surface_AD%Water_Temperature = Surface_AD%Water_Temperature + Temperature_ad
+                 Surface_AD%Salinity          = Surface_AD%Salinity + Salinity_ad
+                 Surface_AD%Wind_Speed        = Surface_AD%Wind_Speed +  Wind_Speed_ad
+                 Surface_AD%Wind_Direction    = Surface_AD%Wind_Direction  + Rel_Azimuth_ad
+          END DO
+              
     ELSE IF (INDEX(TRIM(MODEL%NAME),'NESDIS_FASTEM') > 0) THEN
        IF(TRIM(MODEL%NAME) .EQ. "NESDIS_FASTEM_V6") THEN
            FASTEM_Version = 6 
