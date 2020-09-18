@@ -518,7 +518,7 @@ CONTAINS
 
     ! Fresnel reflectivity calculation
     Permittivity_AD = ZERO
-    CALL Fresnel_Reflectivity_AD( Rv_Fresnel_AD, Rh_Fresnel_AD, iVar%cos_z, &
+    CALL FASTEM_Fresnel_Reflectivity_AD( Rv_Fresnel_AD, Rh_Fresnel_AD, iVar%cos_z, &
                                   Permittivity_AD, &
                                   iVar%fVar )
     ! Permittivity calculation
